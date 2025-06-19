@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BountyScan - EVE Frontier Bounty Hunter</title>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #0a0a0a;
+            color: #ffffff;
+            min-height: 100vh;
+            position: relative;
+            overflow-x: hidden;
+        }
+
+        /* Animated background */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: linear-gradient(45deg, #0a0a0a, #1a0f1f, #0f1a1a);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+        }
+
+        @keyframes gradientShift {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        /* Floating particles */
+        .particle {
+            position: fixed;
+            pointer-events: none;
+            opacity: 0.5;
+            animation: float 20s infinite linear;
+        }
+
+        @keyframes float {
+            from {
+                transform: translateY(100vh) translateX(0);
+            }
+            to {
+                transform: translateY(-10vh) translateX(100px);
+            }
+        }
+
+        /* Header */
+        header {
+            background: rgba(15, 15, 15, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 1rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            animation: slideDown 0.5s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translateY(-100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .logo {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(45deg, #ff3366, #ff6633);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 0 30px rgba(255, 51, 102, 0.5);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .wallet-info {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .wallet-address {
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: #888;
+            background: rgba(255, 255, 255, 0.05);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        /* Buttons */
+        .btn {
+            background: linear-gradient(45deg, #ff3366, #ff6633);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(255, 51, 102, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .btn:active::before {
+            width: 300px;
+            height: 300px;
+        }
+
+        .btn-secondary {
+            background: transparent;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.4);
+            box-shadow: 0 5px 20px rgba(255, 255, 255, 0.1);
+        }
+
+        /* Main content */
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            animation: fadeIn 0.8s ease-out 0.3s both;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Hero section */
+        .hero {
+            text-align: center;
+            padding: 4rem 0;
+            position: relative;
+        }
+
+        .hero h1 {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            background: linear-gradient(45deg, #ff3366, #ff6633, #ffcc33);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: textGlow 3s ease-in-out infinite;
+        }
+
+        @keyframes textGlow {
+            0%, 100% { filter: brightness(1); }
+            50% { filter: brightness(1.2); }
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            color: #aaa;
+            margin-bottom: 2rem;
+            opacity: 0;
+            animation: fadeInUp 0.8s ease-out 0.6s forwards;
+        }
+
+        @keyframes fadeInUp {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+        }
+
+        /* Stats cards */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+            margin: 3rem 0;
+        }
+
+        .stat-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255, 51, 102, 0.1) 0%, transparent 70%);
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .stat-card:hover::before {
+            opacity: 1;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(255, 51, 102, 0.5);
+            box-shadow: 0 20px 40px rgba(255, 51, 102, 0.2);
+        }
+
+        .stat-value {
+            font-size: 3rem;
+            font-weight: bold;
+            background: linear-gradient(45deg, #ff3366, #ff6633);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .stat-label {
+            color: #888;
+            margin-top: 0.5rem;
+        }
+
+        /* Loading spinner */
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #ff3366;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(5px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .modal.show {
+            display: flex;
+            opacity: 1;
+        }
+
+        .modal-content {
+            background: rgba(20, 20, 20, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 2rem;
+            max-width: 500px;
+            width: 90%;
+            transform: scale(0.9);
+            transition: transform 0.3s ease;
+        }
+
+        .modal.show .modal-content {
+            transform: scale(1);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.5rem;
+            }
+            
+            nav {
+                flex-wrap: wrap;
+                gap: 1rem;
+            }
+            
+            .wallet-address {
+                font-size: 0.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-animation"></div>
+    
+    <!-- Floating particles -->
+    <script>
+        for (let i = 0; i < 20; i++) {
+            const particle = document.createElement('div');
+            particle.className = 'particle';
+            particle.style.left = Math.random() * 100 + '%';
+            particle.style.animationDelay = Math.random() * 20 + 's';
+            particle.style.width = particle.style.height = Math.random() * 4 + 2 + 'px';
+            particle.style.background = `rgba(255, ${51 + Math.random() * 50}, ${102 + Math.random() * 50}, 0.8)`;
+            particle.style.borderRadius = '50%';
+            particle.style.boxShadow = `0 0 ${Math.random() * 10 + 5}px rgba(255, 51, 102, 0.5)`;
+            document.body.appendChild(particle);
+        }
+    </script>
+
+    <header>
+        <nav>
+            <div class="logo">BountyScan</div>
+            <div class="wallet-info">
+                <span class="wallet-address" id="walletAddress" style="display: none;"></span>
+                <button class="btn" id="connectWallet">Connect Wallet</button>
+            </div>
+        </nav>
+    </header>
+
+    <main>
+        <section class="hero">
+            <h1>Hunt or Be Hunted</h1>
+            <p>Place bounties on EVE Frontier players and claim rewards for successful eliminations</p>
+            <div id="mainActions" style="display: none; margin-top: 2rem;">
+                <button class="btn" style="margin-right: 1rem;">Create Bounty</button>
+                <button class="btn-secondary btn">View All Bounties</button>
+            </div>
+        </section>
+
+        <section class="stats" id="stats" style="display: none;">
+            <div class="stat-card">
+                <div class="stat-value">0</div>
+                <div class="stat-label">Active Bounties</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">0 ETH</div>
+                <div class="stat-label">Total Value Locked</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">0</div>
+                <div class="stat-label">Bounties Claimed</div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Connection Modal -->
+    <div class="modal" id="connectionModal">
+        <div class="modal-content">
+            <h2 style="margin-bottom: 1rem;">Connecting to Wallet</h2>
+            <div style="display: flex; justify-content: center; margin: 2rem 0;">
+                <div class="spinner"></div>
+            </div>
+            <p style="text-align: center; color: #888;">Please approve the connection in your wallet...</p>
+        </div>
+    </div>
+
+    <script>
+        // Pyrope Testnet configuration
+        const PYROPE_CONFIG = {
+            chainId: '0xa9d11', // 695569 in hex (without unnecessary zeros)
+            chainIdDecimal: 695569,
+            chainName: 'Pyrope Testnet',
+            nativeCurrency: {
+                name: 'Ethereum',
+                symbol: 'ETH',
+                decimals: 18
+            },
+            rpcUrls: ['https://rpc.pyropechain.com'],
+            blockExplorerUrls: ['https://explorer.pyropechain.com']
+        };
+
+        let provider = null;
+        let signer = null;
+        let userAddress = null;
+
+        // Wait for ethers to load
+        window.addEventListener('load', () => {
+            if (!window.ethers) {
+                console.error('Ethers library failed to load');
+            } else {
+                console.log('Ethers library loaded successfully');
+            }
+        });
+
+        // Detect wallet provider
+        function getWalletProvider() {
+            if (window.ethereum) {
+                // Check for multiple providers
+                if (window.ethereum.providers?.length) {
+                    // Multiple wallets installed, try to find MetaMask
+                    const provider = window.ethereum.providers.find((p) => p.isMetaMask);
+                    if (provider) return provider;
+                    // Return first available provider
+                    return window.ethereum.providers[0];
+                }
+                return window.ethereum;
+            }
+            return null;
+        }
+
+        // Connect wallet function
+        async function connectWallet() {
+            // Check if ethers is loaded
+            if (!window.ethers) {
+                alert('Ethers library is still loading. Please try again in a moment.');
+                return;
+            }
+
+            // Give a moment for provider to be injected
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            const ethereum = getWalletProvider();
+            
+            if (!ethereum) {
+                const message = 'No Web3 wallet detected. Please install MetaMask or another Web3 wallet.\n\n' +
+                               'If you have MetaMask installed:\n' +
+                               '1. Make sure it\'s enabled for this site\n' +
+                               '2. Try refreshing the page\n' +
+                               '3. Check if MetaMask is running';
+                alert(message);
+                return;
+            }
+
+            const modal = document.getElementById('connectionModal');
+            modal.classList.add('show');
+
+            try {
+                // First request account access
+                const accounts = await ethereum.request({ 
+                    method: 'eth_requestAccounts' 
+                });
+
+                // Then check if we're on the right network
+                const chainId = await ethereum.request({ 
+                    method: 'eth_chainId' 
+                });
+
+                console.log('Current chain ID:', chainId);
+                console.log('Expected chain ID:', PYROPE_CONFIG.chainId);
+                console.log('Chain ID decimal:', parseInt(chainId, 16));
+
+                // Compare both hex and decimal formats
+                const currentChainDecimal = parseInt(chainId, 16);
+                const expectedChainDecimal = parseInt(PYROPE_CONFIG.chainId, 16);
+
+                if (currentChainDecimal === expectedChainDecimal) {
+                    // We're already on the correct network!
+                    console.log('Already on Pyrope Testnet, proceeding...');
+                    
+                    // Initialize ethers provider - using Web3Provider directly
+                    provider = new window.ethers.providers.Web3Provider(ethereum);
+                    signer = provider.getSigner();
+                    userAddress = accounts[0];
+
+                    // Update UI
+                    updateUIForConnectedWallet();
+                    
+                    console.log('Successfully connected:', userAddress);
+                } else {
+                    // Wrong network, try to switch
+                    modal.classList.remove('show');
+                    
+                    try {
+                        // Try to switch to Pyrope network
+                        await ethereum.request({
+                            method: 'wallet_switchEthereumChain',
+                            params: [{ chainId: PYROPE_CONFIG.chainId }],
+                        });
+                        
+                        // If switch was successful, reconnect
+                        await connectWallet();
+                    } catch (switchError) {
+                        console.error('Switch error:', switchError);
+                        
+                        // Network not added, show manual instructions
+                        const instructions = `Please add and switch to Pyrope Testnet:\n\n` +
+                            `Current network chain ID: ${currentChainDecimal}\n` +
+                            `Expected chain ID: 695569\n\n` +
+                            `To add Pyrope Testnet manually:\n` +
+                            `1. Open MetaMask\n` +
+                            `2. Click the network dropdown at the top\n` +
+                            `3. Click "Add Network Manually"\n` +
+                            `4. Enter these details:\n\n` +
+                            `Network Name: Pyrope Testnet\n` +
+                            `RPC URL: https://rpc.pyropechain.com\n` +
+                            `Chain ID: 695569\n` +
+                            `Symbol: ETH\n` +
+                            `Explorer: https://explorer.pyropechain.com`;
+                        
+                        alert(instructions);
+                    }
+                }
+                
+            } catch (error) {
+                console.error('Error connecting wallet:', error);
+                if (error.code === 4001) {
+                    alert('Connection cancelled by user');
+                } else {
+                    alert('Failed to connect wallet. Please try again.');
+                }
+            }
+
+            modal.classList.remove('show');
+        }
+
+        // Update UI when wallet is connected
+        function updateUIForConnectedWallet() {
+            const connectBtn = document.getElementById('connectWallet');
+            const addressSpan = document.getElementById('walletAddress');
+            const mainActions = document.getElementById('mainActions');
+            const stats = document.getElementById('stats');
+
+            // Show shortened address
+            const shortAddress = userAddress.slice(0, 6) + '...' + userAddress.slice(-4);
+            addressSpan.textContent = shortAddress;
+            addressSpan.style.display = 'block';
+
+            // Update button
+            connectBtn.textContent = 'Disconnect';
+            connectBtn.onclick = disconnectWallet;
+
+            // Show main actions and stats
+            mainActions.style.display = 'block';
+            stats.style.display = 'grid';
+
+            // Add hover effect to show full address
+            addressSpan.title = userAddress;
+        }
+
+        // Disconnect wallet
+        function disconnectWallet() {
+            provider = null;
+            signer = null;
+            userAddress = null;
+
+            // Reset UI
+            const connectBtn = document.getElementById('connectWallet');
+            const addressSpan = document.getElementById('walletAddress');
+            const mainActions = document.getElementById('mainActions');
+            const stats = document.getElementById('stats');
+
+            addressSpan.style.display = 'none';
+            connectBtn.textContent = 'Connect Wallet';
+            connectBtn.onclick = connectWallet;
+            mainActions.style.display = 'none';
+            stats.style.display = 'none';
+        }
+
+        // Listen for account changes
+        if (window.ethereum) {
+            const ethereum = getWalletProvider();
+            if (ethereum) {
+                ethereum.on('accountsChanged', (accounts) => {
+                    if (accounts.length === 0) {
+                        disconnectWallet();
+                    } else if (userAddress && accounts[0] !== userAddress) {
+                        userAddress = accounts[0];
+                        updateUIForConnectedWallet();
+                    }
+                });
+
+                ethereum.on('chainChanged', (chainId) => {
+                    if (chainId !== PYROPE_CONFIG.chainId) {
+                        alert('Please switch to Pyrope Testnet to use this dapp');
+                        disconnectWallet();
+                    }
+                });
+            }
+        }
+
+        // Initialize
+        document.getElementById('connectWallet').onclick = connectWallet;
+
+        // Auto-connect if previously connected
+        window.addEventListener('load', async () => {
+            // Wait for provider to be injected
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            const ethereum = getWalletProvider();
+            if (ethereum) {
+                try {
+                    const accounts = await ethereum.request({ 
+                        method: 'eth_accounts' 
+                    });
+                    
+                    if (accounts.length > 0) {
+                        const chainId = await ethereum.request({ 
+                            method: 'eth_chainId' 
+                        });
+                        
+                        if (chainId === PYROPE_CONFIG.chainId) {
+                            provider = new window.ethers.providers.Web3Provider(ethereum);
+                            signer = provider.getSigner();
+                            userAddress = accounts[0];
+                            updateUIForConnectedWallet();
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error checking for existing connection:', error);
+                }
+            }
+        });
+
+        // Also add a button to help debug
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+                console.log('Window.ethereum:', window.ethereum);
+                console.log('Detected provider:', getWalletProvider());
+                alert(`Wallet Detection Debug:\n\nwindow.ethereum exists: ${!!window.ethereum}\nProvider: ${getWalletProvider()?.isMetaMask ? 'MetaMask' : 'Other'}`);
+            }
+        });
+    </script>
+</body>
+</html>
