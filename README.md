@@ -1,0 +1,2 @@
+# bountyscan
+EVE Frontier Bounties
