@@ -295,6 +295,7 @@
             border-top-color: #ff3366;
             border-radius: 50%;
             animation: spin 1s linear infinite;
+            margin: 0 auto;
         }
 
         @keyframes spin {
@@ -338,6 +339,107 @@
             transform: scale(1);
         }
 
+        /* Form styles */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 0.5rem;
+            color: #aaa;
+            font-size: 0.9rem;
+        }
+
+        .form-input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 0.75rem 1rem;
+            color: white;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-input:focus {
+            outline: none;
+            border-color: #ff3366;
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 20px rgba(255, 51, 102, 0.2);
+        }
+
+        .character-info {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .character-portrait {
+            width: 64px;
+            height: 64px;
+            border-radius: 8px;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .error-message {
+            color: #ff3366;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+        .success-message {
+            color: #33ff66;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+
+        .bounty-list {
+            display: grid;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+
+        .bounty-item {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: all 0.3s ease;
+        }
+
+        .bounty-item:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 51, 102, 0.5);
+            box-shadow: 0 10px 30px rgba(255, 51, 102, 0.2);
+        }
+
+        .bounty-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .bounty-amount {
+            font-size: 1.5rem;
+            font-weight: bold;
+            background: linear-gradient(45deg, #ff3366, #ff6633);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .bounty-details {
+            color: #aaa;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
         /* Responsive */
         @media (max-width: 768px) {
             .hero h1 {
@@ -378,32 +480,37 @@
             <div class="logo">BountyScan</div>
             <div class="wallet-info">
                 <span class="wallet-address" id="walletAddress" style="display: none;"></span>
-                <button class="btn" id="connectWallet">Connect Wallet</button>
+                <button class="btn-secondary btn" id="faucetBtn" style="display: none;" onclick="window.open('https://pyropechain.com/faucet', '_blank')">Get Test ETH</button>
+                <button class="btn" id="connectWallet" onclick="window.connectWallet()">Connect Wallet</button>
             </div>
         </nav>
     </header>
 
     <main>
         <section class="hero">
-            <h1>Hunt or Be Hunted</h1>
+            <h1>If I destroy you, what business is it of yours?</h1>
             <p>Place bounties on EVE Frontier players and claim rewards for successful eliminations</p>
             <div id="mainActions" style="display: none; margin-top: 2rem;">
-                <button class="btn" style="margin-right: 1rem;">Create Bounty</button>
-                <button class="btn-secondary btn">View All Bounties</button>
+                <button class="btn" style="margin-right: 1rem;" onclick="showCreateBounty()">Create Bounty</button>
+                <button class="btn-secondary btn" style="margin-right: 1rem;" onclick="showAllBounties()">View All Bounties</button>
+                <button class="btn-secondary btn" onclick="showClaimBounty()">Claim Bounty</button>
             </div>
         </section>
 
+        <!-- Dynamic Content Area -->
+        <section id="dynamicContent" style="margin-top: 3rem;"></section>
+
         <section class="stats" id="stats" style="display: none;">
             <div class="stat-card">
-                <div class="stat-value">0</div>
+                <div class="stat-value" id="activeBountiesCount">0</div>
                 <div class="stat-label">Active Bounties</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value">0 ETH</div>
+                <div class="stat-value" id="totalValueLocked">0 ETH</div>
                 <div class="stat-label">Total Value Locked</div>
             </div>
             <div class="stat-card">
-                <div class="stat-value">0</div>
+                <div class="stat-value" id="claimedBountiesCount">0</div>
                 <div class="stat-label">Bounties Claimed</div>
             </div>
         </section>
@@ -421,23 +528,418 @@
     </div>
 
     <script>
-        // Pyrope Testnet configuration
-        const PYROPE_CONFIG = {
-            chainId: '0xa9d11', // 695569 in hex (without unnecessary zeros)
-            chainIdDecimal: 695569,
-            chainName: 'Pyrope Testnet',
-            nativeCurrency: {
-                name: 'Ethereum',
-                symbol: 'ETH',
-                decimals: 18
-            },
-            rpcUrls: ['https://rpc.pyropechain.com'],
-            blockExplorerUrls: ['https://explorer.pyropechain.com']
-        };
+        (function() {
+            // Contract ABI (simplified - only the functions we need)
+            const BOUNTYSCAN_ABI = [
+                "function createBounty(address _targetAddress) payable",
+                "function claimBounty(uint256 _bountyId, uint256 _killmailId, address _killerAddress, address _victimAddress, uint256 _killTimestamp)",
+                "function cancelBounty(uint256 _bountyId)",
+                "function getBountiesOnTarget(address _target) view returns (uint256[])",
+                "function getActiveBountiesOnTarget(address _target) view returns (uint256[])",
+                "function getTotalBountyOnTarget(address _target) view returns (uint256)",
+                "function bounties(uint256) view returns (address creator, address targetAddress, uint256 amount, uint256 createdAt, bool claimed, address claimedBy, uint256 killmailId)",
+                "event BountyCreated(uint256 indexed bountyId, address indexed target, address indexed creator, uint256 amount)",
+                "event BountyClaimed(uint256 indexed bountyId, address indexed killer, uint256 killmailId)"
+            ];
+            
+            const BOUNTYSCAN_ADDRESS = "0xFE87C036e3C4E57e2FB16724481Ec0C4af463880";
+            const EVE_API_BASE = "https://blockchain-gateway-stillness.live.tech.evefrontier.com";
 
-        let provider = null;
-        let signer = null;
-        let userAddress = null;
+            // Pyrope Testnet configuration
+            const PYROPE_CONFIG = {
+                chainId: '0xa9d11', // 695569 in hex (without unnecessary zeros)
+                chainIdDecimal: 695569,
+                chainName: 'Pyrope Testnet',
+                nativeCurrency: {
+                    name: 'Ethereum',
+                    symbol: 'ETH',
+                    decimals: 18
+                },
+                rpcUrls: ['https://rpc.pyropechain.com'],
+                blockExplorerUrls: ['https://explorer.pyropechain.com']
+            };
+
+            // Global variables
+            let provider = null;
+            let signer = null;
+            let userAddress = null;
+            let bountyContract = null;
+
+        // Initialize contract when wallet connects
+        function initializeContract() {
+            if (provider && signer) {
+                bountyContract = new window.ethers.Contract(BOUNTYSCAN_ADDRESS, BOUNTYSCAN_ABI, signer);
+                updateStats();
+            }
+        }
+
+        // Update stats from blockchain
+        async function updateStats() {
+            if (!bountyContract) return;
+
+            try {
+                // Get all BountyCreated events
+                const createdFilter = bountyContract.filters.BountyCreated();
+                const createdEvents = await bountyContract.queryFilter(createdFilter, 0, 'latest');
+                
+                // Get all BountyClaimed events
+                const claimedFilter = bountyContract.filters.BountyClaimed();
+                const claimedEvents = await bountyContract.queryFilter(claimedFilter, 0, 'latest');
+
+                // Calculate stats
+                let totalValue = window.ethers.BigNumber.from(0);
+                let activeCount = 0;
+
+                for (const event of createdEvents) {
+                    const bounty = await bountyContract.bounties(event.args.bountyId);
+                    if (!bounty.claimed) {
+                        totalValue = totalValue.add(bounty.amount);
+                        activeCount++;
+                    }
+                }
+
+                // Update UI
+                document.getElementById('activeBountiesCount').textContent = activeCount;
+                document.getElementById('totalValueLocked').textContent = 
+                    window.ethers.utils.formatEther(totalValue).slice(0, 8) + ' ETH';
+                document.getElementById('claimedBountiesCount').textContent = claimedEvents.length;
+            } catch (error) {
+                console.error('Error updating stats:', error);
+            }
+        }
+
+        // Show create bounty form
+        function showCreateBounty() {
+            const content = document.getElementById('dynamicContent');
+            content.innerHTML = `
+                <div style="max-width: 600px; margin: 0 auto;">
+                    <h2 style="margin-bottom: 2rem;">Create New Bounty</h2>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Target Wallet Address</label>
+                        <input type="text" id="targetAddress" class="form-input" 
+                               placeholder="0x..." 
+                               onchange="lookupCharacter(this.value)">
+                        <div id="characterInfo"></div>
+                        <div id="addressError" class="error-message"></div>
+                    </div>
+
+                    <div class="form-group">
+                        <label class="form-label">Bounty Amount (ETH)</label>
+                        <input type="number" id="bountyAmount" class="form-input" 
+                               placeholder="0.1" step="0.01" min="0.001">
+                        <div id="amountError" class="error-message"></div>
+                    </div>
+
+                    <button class="btn" onclick="createBounty()">Create Bounty</button>
+                    <div id="createStatus" style="margin-top: 1rem;"></div>
+                </div>
+            `;
+        }
+
+        // Lookup character info from EVE API
+        async function lookupCharacter(address) {
+            const infoDiv = document.getElementById('characterInfo');
+            const errorDiv = document.getElementById('addressError');
+            
+            if (!window.ethers.utils.isAddress(address)) {
+                errorDiv.textContent = 'Invalid Ethereum address';
+                infoDiv.innerHTML = '';
+                return;
+            }
+
+            errorDiv.textContent = '';
+            infoDiv.innerHTML = '<div class="spinner"></div>';
+
+            try {
+                const response = await fetch(`${EVE_API_BASE}/v2/smartcharacters/${address}`);
+                if (!response.ok) throw new Error('Character not found');
+                
+                const data = await response.json();
+                infoDiv.innerHTML = `
+                    <div class="character-info">
+                        ${data.portraitUrl ? `<img src="${data.portraitUrl}" class="character-portrait">` : ''}
+                        <div>
+                            <div style="font-weight: bold;">${data.name || 'Unknown Character'}</div>
+                            <div style="color: #888; font-size: 0.9rem;">${address.slice(0, 6)}...${address.slice(-4)}</div>
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                errorDiv.textContent = 'Character not found in EVE Frontier';
+                infoDiv.innerHTML = '';
+            }
+        }
+
+        // Create bounty transaction
+        async function createBounty() {
+            const targetAddress = document.getElementById('targetAddress').value;
+            const bountyAmount = document.getElementById('bountyAmount').value;
+            const statusDiv = document.getElementById('createStatus');
+
+            // Validation
+            if (!window.ethers.utils.isAddress(targetAddress)) {
+                statusDiv.innerHTML = '<div class="error-message">Invalid target address</div>';
+                return;
+            }
+
+            if (!bountyAmount || parseFloat(bountyAmount) <= 0) {
+                statusDiv.innerHTML = '<div class="error-message">Invalid bounty amount</div>';
+                return;
+            }
+
+            try {
+                statusDiv.innerHTML = '<div class="spinner"></div> Creating bounty...';
+
+                const tx = await bountyContract.createBounty(targetAddress, {
+                    value: window.ethers.utils.parseEther(bountyAmount)
+                });
+
+                statusDiv.innerHTML = '<div class="spinner"></div> Waiting for confirmation...';
+                await tx.wait();
+
+                statusDiv.innerHTML = '<div class="success-message">Bounty created successfully!</div>';
+                updateStats();
+                
+                // Clear form
+                setTimeout(() => {
+                    document.getElementById('targetAddress').value = '';
+                    document.getElementById('bountyAmount').value = '';
+                    document.getElementById('characterInfo').innerHTML = '';
+                    statusDiv.innerHTML = '';
+                }, 3000);
+
+            } catch (error) {
+                console.error('Error creating bounty:', error);
+                statusDiv.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        // Show claim bounty form
+        function showClaimBounty() {
+            const content = document.getElementById('dynamicContent');
+            content.innerHTML = `
+                <div style="max-width: 600px; margin: 0 auto;">
+                    <h2 style="margin-bottom: 2rem;">Claim Bounty</h2>
+                    
+                    <div class="form-group">
+                        <label class="form-label">Killmail ID</label>
+                        <input type="number" id="killmailId" class="form-input" 
+                               placeholder="Enter killmail ID" 
+                               onchange="lookupKillmail(this.value)">
+                        <div id="killmailInfo"></div>
+                        <div id="killmailError" class="error-message"></div>
+                    </div>
+
+                    <div id="matchingBounties"></div>
+
+                    <div id="claimStatus" style="margin-top: 1rem;"></div>
+                </div>
+            `;
+        }
+
+        // Lookup killmail from EVE API
+        async function lookupKillmail(killmailId) {
+            if (!killmailId) return;
+
+            const infoDiv = document.getElementById('killmailInfo');
+            const errorDiv = document.getElementById('killmailError');
+            const bountiesDiv = document.getElementById('matchingBounties');
+            
+            infoDiv.innerHTML = '<div class="spinner"></div>';
+            errorDiv.textContent = '';
+            bountiesDiv.innerHTML = '';
+
+            try {
+                const response = await fetch(`${EVE_API_BASE}/v2/killmails/${killmailId}`);
+                if (!response.ok) throw new Error('Killmail not found');
+                
+                const killmail = await response.json();
+                
+                // Display killmail info
+                infoDiv.innerHTML = `
+                    <div class="character-info">
+                        <div style="flex: 1;">
+                            <div><strong>Killer:</strong> ${killmail.killer.name} (${killmail.killer.address.slice(0, 6)}...${killmail.killer.address.slice(-4)})</div>
+                            <div><strong>Victim:</strong> ${killmail.victim.name} (${killmail.victim.address.slice(0, 6)}...${killmail.victim.address.slice(-4)})</div>
+                            <div><strong>Time:</strong> ${new Date(killmail.time).toLocaleString()}</div>
+                        </div>
+                    </div>
+                `;
+
+                // Check if user is the killer
+                if (killmail.killer.address.toLowerCase() !== userAddress.toLowerCase()) {
+                    errorDiv.textContent = 'You can only claim bounties for your own kills';
+                    return;
+                }
+
+                // Find matching bounties
+                await findMatchingBounties(killmail);
+
+            } catch (error) {
+                errorDiv.textContent = 'Killmail not found';
+                infoDiv.innerHTML = '';
+            }
+        }
+
+        // Find bounties matching the killmail
+        async function findMatchingBounties(killmail) {
+            const bountiesDiv = document.getElementById('matchingBounties');
+            
+            try {
+                // Get all bounties on the victim
+                const bountyIds = await bountyContract.getBountiesOnTarget(killmail.victim.address);
+                
+                const matchingBounties = [];
+                const killTimestamp = Math.floor(new Date(killmail.time).getTime() / 1000);
+
+                for (const bountyId of bountyIds) {
+                    const bounty = await bountyContract.bounties(bountyId);
+                    
+                    // Check if bounty is claimable
+                    if (!bounty.claimed && bounty.createdAt.toNumber() < killTimestamp) {
+                        matchingBounties.push({
+                            id: bountyId,
+                            ...bounty,
+                            killmail: killmail
+                        });
+                    }
+                }
+
+                if (matchingBounties.length === 0) {
+                    bountiesDiv.innerHTML = '<div class="error-message">No claimable bounties found for this kill</div>';
+                    return;
+                }
+
+                // Display claimable bounties
+                let html = '<h3 style="margin: 1.5rem 0 1rem;">Claimable Bounties:</h3>';
+                for (const bounty of matchingBounties) {
+                    html += `
+                        <div class="bounty-item">
+                            <div class="bounty-header">
+                                <div>
+                                    <div class="bounty-amount">${window.ethers.utils.formatEther(bounty.amount)} ETH</div>
+                                    <div class="bounty-details">
+                                        Created by: ${bounty.creator.slice(0, 6)}...${bounty.creator.slice(-4)}<br>
+                                        Created at: ${new Date(bounty.createdAt.toNumber() * 1000).toLocaleString()}
+                                    </div>
+                                </div>
+                                <button class="btn" onclick='claimBounty(${bounty.id.toString()}, ${JSON.stringify(killmail)})'>
+                                    Claim Bounty
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }
+                bountiesDiv.innerHTML = html;
+
+            } catch (error) {
+                console.error('Error finding bounties:', error);
+                bountiesDiv.innerHTML = '<div class="error-message">Error loading bounties</div>';
+            }
+        }
+
+        // Claim a specific bounty
+        async function claimBounty(bountyId, killmail) {
+            const statusDiv = document.getElementById('claimStatus');
+            
+            try {
+                statusDiv.innerHTML = '<div class="spinner"></div> Claiming bounty...';
+
+                const killTimestamp = Math.floor(new Date(killmail.time).getTime() / 1000);
+                
+                const tx = await bountyContract.claimBounty(
+                    bountyId,
+                    killmail.id,
+                    killmail.killer.address,
+                    killmail.victim.address,
+                    killTimestamp
+                );
+
+                statusDiv.innerHTML = '<div class="spinner"></div> Waiting for confirmation...';
+                await tx.wait();
+
+                statusDiv.innerHTML = '<div class="success-message">Bounty claimed successfully!</div>';
+                updateStats();
+                
+                // Refresh the killmail lookup
+                setTimeout(() => {
+                    lookupKillmail(killmail.id);
+                }, 2000);
+
+            } catch (error) {
+                console.error('Error claiming bounty:', error);
+                statusDiv.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        // Show all bounties
+        async function showAllBounties() {
+            const content = document.getElementById('dynamicContent');
+            content.innerHTML = '<div class="spinner"></div> Loading bounties...';
+
+            try {
+                // Get all BountyCreated events
+                const filter = bountyContract.filters.BountyCreated();
+                const events = await bountyContract.queryFilter(filter, 0, 'latest');
+
+                const bounties = [];
+                for (const event of events) {
+                    const bounty = await bountyContract.bounties(event.args.bountyId);
+                    if (!bounty.claimed) {
+                        // Try to get character info
+                        let targetInfo = { name: 'Unknown', address: bounty.targetAddress };
+                        try {
+                            const response = await fetch(`${EVE_API_BASE}/v2/smartcharacters/${bounty.targetAddress}`);
+                            if (response.ok) {
+                                targetInfo = await response.json();
+                            }
+                        } catch (e) {}
+
+                        bounties.push({
+                            id: event.args.bountyId,
+                            ...bounty,
+                            targetInfo
+                        });
+                    }
+                }
+
+                if (bounties.length === 0) {
+                    content.innerHTML = '<div style="text-align: center; color: #888;">No active bounties</div>';
+                    return;
+                }
+
+                let html = '<h2 style="margin-bottom: 2rem;">Active Bounties</h2><div class="bounty-list">';
+                for (const bounty of bounties) {
+                    html += `
+                        <div class="bounty-item">
+                            <div class="bounty-header">
+                                <div>
+                                    <div style="font-weight: bold; font-size: 1.1rem; margin-bottom: 0.5rem;">
+                                        ${bounty.targetInfo.name}
+                                    </div>
+                                    <div class="bounty-amount">${window.ethers.utils.formatEther(bounty.amount)} ETH</div>
+                                    <div class="bounty-details">
+                                        Target: ${bounty.targetAddress.slice(0, 6)}...${bounty.targetAddress.slice(-4)}<br>
+                                        Created by: ${bounty.creator.slice(0, 6)}...${bounty.creator.slice(-4)}<br>
+                                        Created: ${new Date(bounty.createdAt.toNumber() * 1000).toLocaleString()}
+                                    </div>
+                                </div>
+                                ${bounty.targetInfo.portraitUrl ? 
+                                    `<img src="${bounty.targetInfo.portraitUrl}" style="width: 80px; height: 80px; border-radius: 8px;">` : 
+                                    ''}
+                            </div>
+                        </div>
+                    `;
+                }
+                html += '</div>';
+                content.innerHTML = html;
+
+            } catch (error) {
+                console.error('Error loading bounties:', error);
+                content.innerHTML = '<div class="error-message">Error loading bounties</div>';
+            }
+        }
 
         // Wait for ethers to load
         window.addEventListener('load', () => {
@@ -466,6 +968,8 @@
 
         // Connect wallet function
         async function connectWallet() {
+            console.log('Connect wallet clicked');
+            
             // Check if ethers is loaded
             if (!window.ethers) {
                 alert('Ethers library is still loading. Please try again in a moment.');
@@ -476,6 +980,7 @@
             await new Promise(resolve => setTimeout(resolve, 100));
             
             const ethereum = getWalletProvider();
+            console.log('Ethereum provider:', ethereum);
             
             if (!ethereum) {
                 const message = 'No Web3 wallet detected. Please install MetaMask or another Web3 wallet.\n\n' +
@@ -575,11 +1080,15 @@
             const addressSpan = document.getElementById('walletAddress');
             const mainActions = document.getElementById('mainActions');
             const stats = document.getElementById('stats');
+            const faucetBtn = document.getElementById('faucetBtn');
 
             // Show shortened address
             const shortAddress = userAddress.slice(0, 6) + '...' + userAddress.slice(-4);
             addressSpan.textContent = shortAddress;
             addressSpan.style.display = 'block';
+
+            // Show faucet button
+            faucetBtn.style.display = 'block';
 
             // Update button
             connectBtn.textContent = 'Disconnect';
@@ -591,6 +1100,9 @@
 
             // Add hover effect to show full address
             addressSpan.title = userAddress;
+
+            // Initialize contract
+            initializeContract();
         }
 
         // Disconnect wallet
@@ -598,14 +1110,17 @@
             provider = null;
             signer = null;
             userAddress = null;
+            bountyContract = null;
 
             // Reset UI
             const connectBtn = document.getElementById('connectWallet');
             const addressSpan = document.getElementById('walletAddress');
             const mainActions = document.getElementById('mainActions');
             const stats = document.getElementById('stats');
+            const faucetBtn = document.getElementById('faucetBtn');
 
             addressSpan.style.display = 'none';
+            faucetBtn.style.display = 'none';
             connectBtn.textContent = 'Connect Wallet';
             connectBtn.onclick = connectWallet;
             mainActions.style.display = 'none';
@@ -675,6 +1190,23 @@
                 alert(`Wallet Detection Debug:\n\nwindow.ethereum exists: ${!!window.ethereum}\nProvider: ${getWalletProvider()?.isMetaMask ? 'MetaMask' : 'Other'}`);
             }
         });
+
+        // Expose necessary functions to global scope
+        window.connectWallet = connectWallet;
+        window.disconnectWallet = disconnectWallet;
+        window.showCreateBounty = showCreateBounty;
+        window.showAllBounties = showAllBounties;
+        window.showClaimBounty = showClaimBounty;
+        window.lookupCharacter = lookupCharacter;
+        window.createBounty = createBounty;
+        window.lookupKillmail = lookupKillmail;
+        window.claimBounty = claimBounty;
+
+        // Set up button click handler after exposing functions
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('connectWallet').onclick = connectWallet;
+        });
+        })();
     </script>
 </body>
 </html>
