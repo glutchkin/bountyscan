@@ -592,10 +592,13 @@
         <section class="hero">
             <h1>The Network Wars: Claim Phase</h1>
             <p>Claim rewards for deploying Network Nodes in specific solar systems</p>
-            <div id="mainActions" style="display: none; margin-top: 2rem;">
-                <button class="btn" style="margin-right: 1rem;" onclick="showCreateBounty()">Create Bounty</button>
+            <div id="mainActions" style="margin-top: 2rem;">
+                <button class="btn" style="margin-right: 1rem;" onclick="showCreateBounty()" id="createBountyBtn" disabled>Create Bounty</button>
                 <button class="btn-secondary btn" style="margin-right: 1rem;" onclick="showAllBounties()">View All Bounties</button>
-                <button class="btn-secondary btn" onclick="showMyBounties()">My Bounties</button>
+                <button class="btn-secondary btn" onclick="showMyBounties()" id="myBountiesBtn" disabled>My Bounties</button>
+            </div>
+            <div style="margin-top: 1rem; color: #888; font-size: 0.9rem;" id="walletRequiredMsg">
+                Connect your wallet to create bounties or view your personal bounties
             </div>
         </section>
 
@@ -674,8 +677,74 @@
             let signer = null;
             let userAddress = null;
             let bountyContract = null;
+            let solarSystemsMapping = null;
             
-            // Show toast notification
+            // Load solar systems mapping
+            async function loadSolarSystemsMapping() {
+                if (solarSystemsMapping) return solarSystemsMapping;
+                
+                try {
+                    const response = await fetch('./solar_systems_mapping.json');
+                    if (!response.ok) throw new Error('Failed to load solar systems mapping');
+                    solarSystemsMapping = await response.json();
+                    return solarSystemsMapping;
+                } catch (error) {
+                    console.error('Error loading solar systems mapping:', error);
+                    showToast('Failed to load solar systems database', 'error');
+                    return null;
+                }
+            }
+
+            // Fuzzy search function
+            function fuzzySearch(searchTerm, systemsMapping, maxResults = 10) {
+                if (!searchTerm || !systemsMapping) return [];
+                
+                const searchLower = searchTerm.toLowerCase();
+                const results = [];
+                
+                for (const [systemName, systemId] of Object.entries(systemsMapping)) {
+                    const nameLower = systemName.toLowerCase();
+                    let score = 0;
+                    
+                    // Exact match gets highest score
+                    if (nameLower === searchLower) {
+                        score = 1000;
+                    }
+                    // Starts with search term
+                    else if (nameLower.startsWith(searchLower)) {
+                        score = 900;
+                    }
+                    // Contains search term
+                    else if (nameLower.includes(searchLower)) {
+                        score = 800;
+                    }
+                    // Fuzzy matching - check if all characters in search term appear in order
+                    else {
+                        let searchIndex = 0;
+                        let matches = 0;
+                        
+                        for (let i = 0; i < nameLower.length && searchIndex < searchLower.length; i++) {
+                            if (nameLower[i] === searchLower[searchIndex]) {
+                                matches++;
+                                searchIndex++;
+                            }
+                        }
+                        
+                        if (matches === searchLower.length) {
+                            score = 700 - (nameLower.length - searchLower.length) * 10; // Prefer shorter matches
+                        }
+                    }
+                    
+                    if (score > 0) {
+                        results.push({ name: systemName, id: systemId, score });
+                    }
+                }
+                
+                // Sort by score and return top results
+                return results
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, maxResults);
+            }
             function showToast(message, type = 'info', duration = 5000) {
                 const container = document.getElementById('toastContainer');
                 const toast = document.createElement('div');
@@ -763,7 +832,8 @@
                             <label class="form-label">Solar System Name or ID</label>
                             <input type="text" id="systemInput" class="form-input" 
                                    placeholder="e.g., U6R-506 or 30014334" 
-                                   onchange="lookupSystem(this.value)">
+                                   autocomplete="off">
+                            <div id="searchResults" style="display: none;"></div>
                             <div id="systemInfo"></div>
                             <div id="systemError" class="error-message"></div>
                         </div>
@@ -779,7 +849,97 @@
                         <div id="createStatus" style="margin-top: 1rem;"></div>
                     </div>
                 `;
+                
+                // Load solar systems mapping when form is shown
+                loadSolarSystemsMapping();
+                
+                // Add event listeners after DOM is updated
+                setTimeout(() => {
+                    const systemInput = document.getElementById('systemInput');
+                    if (systemInput) {
+                        systemInput.addEventListener('input', (e) => {
+                            window.searchSolarSystems(e.target.value);
+                        });
+                        
+                        systemInput.addEventListener('change', (e) => {
+                            window.lookupSystem(e.target.value);
+                        });
+                        
+                        // Hide search results when clicking outside
+                        systemInput.addEventListener('blur', () => {
+                            setTimeout(() => {
+                                const resultsDiv = document.getElementById('searchResults');
+                                if (resultsDiv) resultsDiv.style.display = 'none';
+                            }, 200); // Delay to allow clicking on results
+                        });
+                    }
+                }, 0);
             }
+
+            // Search solar systems with fuzzy matching
+            async function searchSolarSystems(searchTerm) {
+                const resultsDiv = document.getElementById('searchResults');
+                
+                if (!searchTerm || searchTerm.length < 2) {
+                    resultsDiv.style.display = 'none';
+                    return;
+                }
+
+                // Load mapping if not already loaded
+                const mapping = await loadSolarSystemsMapping();
+                if (!mapping) {
+                    resultsDiv.style.display = 'none';
+                    return;
+                }
+
+                // If it's a pure number, don't show search results (let the user enter the ID directly)
+                if (/^\d+$/.test(searchTerm)) {
+                    resultsDiv.style.display = 'none';
+                    return;
+                }
+
+                const results = fuzzySearch(searchTerm, mapping);
+                
+                if (results.length === 0) {
+                    resultsDiv.style.display = 'none';
+                    return;
+                }
+
+                let html = '<div style="background: rgba(0, 0, 0, 0.9); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 8px; margin-top: 0.5rem; max-height: 200px; overflow-y: auto; z-index: 1000; position: relative;">';
+                
+                results.forEach(result => {
+                    html += `
+                        <div style="padding: 0.75rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); cursor: pointer; transition: background 0.2s;"
+                             onmouseover="this.style.background='rgba(255, 51, 102, 0.1)'"
+                             onmouseout="this.style.background='transparent'"
+                             onclick="selectSolarSystem('${result.name}', ${result.id})">
+                            <div style="font-weight: bold; color: #fff;">${result.name}</div>
+                            <div style="font-size: 0.85rem; color: #888;">ID: ${result.id}</div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                resultsDiv.innerHTML = html;
+                resultsDiv.style.display = 'block';
+            }
+
+            // Select a solar system from search results
+            async function selectSolarSystem(systemName, systemId) {
+                const input = document.getElementById('systemInput');
+                const resultsDiv = document.getElementById('searchResults');
+                
+                input.value = systemName;
+                resultsDiv.style.display = 'none';
+                
+                // Automatically lookup the selected system
+                await lookupSystem(systemId.toString());
+            }
+
+            // Expose functions to global scope immediately
+            window.searchSolarSystems = searchSolarSystems;
+            window.selectSolarSystem = selectSolarSystem;
+            window.lookupSystem = lookupSystem;
 
             // Lookup system info from EVE API
             async function lookupSystem(input) {
@@ -796,7 +956,6 @@
                 infoDiv.innerHTML = '<div class="spinner"></div>';
 
                 try {
-                    // Determine if input is ID or name
                     let systemId;
                     let systemData;
                     
@@ -804,11 +963,15 @@
                         // Input is numeric, treat as ID
                         systemId = input;
                     } else {
-                        // Input is name, need to search for it
-                        // For now, we'll need to handle this differently since there's no search endpoint
-                        errorDiv.textContent = 'Please enter a system ID. System name search coming soon.';
-                        infoDiv.innerHTML = '';
-                        return;
+                        // Input is name, look it up in mapping
+                        const mapping = await loadSolarSystemsMapping();
+                        if (mapping && mapping[input]) {
+                            systemId = mapping[input].toString();
+                        } else {
+                            errorDiv.textContent = 'System not found in database. Please check the name or use a system ID.';
+                            infoDiv.innerHTML = '';
+                            return;
+                        }
                     }
 
                     const response = await fetch(`${EVE_API_BASE}/v2/solarsystems/${systemId}`);
@@ -916,16 +1079,23 @@
             async function showAllBounties() {
                 const content = document.getElementById('dynamicContent');
                 content.innerHTML = '<div class="spinner"></div> Loading bounties...';
-
+            
                 try {
-                    const totalCount = await bountyContract.bountyCounter();
+                    // Initialize read-only contract if not connected
+                    let contractToUse = bountyContract;
+                    if (!contractToUse) {
+                        const readOnlyProvider = new window.ethers.providers.JsonRpcProvider('https://rpc.pyropechain.com');
+                        contractToUse = new window.ethers.Contract(NETWORKNODE_BOUNTY_ADDRESS, NETWORKNODE_BOUNTY_ABI, readOnlyProvider);
+                    }
+                    
+                    const totalCount = await contractToUse.bountyCounter();
                     const bounties = [];
                     
                     // Group bounties by system
                     const systemBounties = {};
                     
                     for (let i = 0; i < totalCount; i++) {
-                        const bounty = await bountyContract.bounties(i);
+                        const bounty = await contractToUse.bounties(i);
                         if (!bounty.claimed) {
                             const systemId = bounty.systemId.toString();
                             if (!systemBounties[systemId]) {
@@ -988,6 +1158,13 @@
                 content.innerHTML = '<div class="spinner"></div> Loading system bounties...';
 
                 try {
+                    // Initialize read-only contract if not connected
+                    let contractToUse = bountyContract;
+                    if (!contractToUse) {
+                        const readOnlyProvider = new window.ethers.providers.JsonRpcProvider('https://rpc.pyropechain.com');
+                        contractToUse = new window.ethers.Contract(NETWORKNODE_BOUNTY_ADDRESS, NETWORKNODE_BOUNTY_ABI, readOnlyProvider);
+                    }
+
                     // Get current system info
                     let currentNetworkNodes = [];
                     try {
@@ -1002,15 +1179,15 @@
                         console.error('Error fetching system data:', e);
                     }
 
-                    const bountyIds = await bountyContract.getBountiesOnSystem(systemId);
+                    const bountyIds = await contractToUse.getBountiesOnSystem(systemId);
                     const bounties = [];
                     
                     for (const bountyId of bountyIds) {
-                        const bounty = await bountyContract.bounties(bountyId);
+                        const bounty = await contractToUse.bounties(bountyId);
                         if (!bounty.claimed) {
-                            const excludedAddresses = await bountyContract.getBountyExcludedAddresses(bountyId);
-                            const canClaim = userAddress ? await bountyContract.canAddressClaimBounty(bountyId, userAddress) : false;
-                            
+                            const excludedAddresses = await contractToUse.getBountyExcludedAddresses(bountyId);
+                            const canClaim = userAddress ? await contractToUse.canAddressClaimBounty(bountyId, userAddress) : false;
+
                             bounties.push({
                                 id: bountyId,
                                 ...bounty,
@@ -1449,7 +1626,9 @@
                 connectBtn.onclick = disconnectWallet;
 
                 // Show main actions and stats
-                mainActions.style.display = 'block';
+                document.getElementById('createBountyBtn').disabled = false;
+                document.getElementById('myBountiesBtn').disabled = false;
+                document.getElementById('walletRequiredMsg').style.display = 'none';
                 stats.style.display = 'grid';
 
                 // Add hover effect to show full address
@@ -1479,9 +1658,11 @@
                 networkIndicator.style.display = 'none';
                 connectBtn.textContent = 'Connect Wallet';
                 connectBtn.onclick = connectWallet;
-                mainActions.style.display = 'none';
+                document.getElementById('createBountyBtn').disabled = true;
+                document.getElementById('myBountiesBtn').disabled = true;
+                document.getElementById('walletRequiredMsg').style.display = 'block';
                 stats.style.display = 'none';
-                
+                 
                 showToast('Wallet disconnected', 'info');
             }
 
@@ -1556,6 +1737,12 @@
                         console.error('Error checking for existing connection:', error);
                     }
                 }
+
+                // Auto-load bounties view and preload solar systems mapping
+                setTimeout(() => {
+                    showAllBounties();
+                    loadSolarSystemsMapping(); // Preload the mapping for faster searches
+                }, 1000);
             });
 
             // Expose necessary functions to global scope
@@ -1565,7 +1752,6 @@
             window.showAllBounties = showAllBounties;
             window.showMyBounties = showMyBounties;
             window.viewSystemBounties = viewSystemBounties;
-            window.lookupSystem = lookupSystem;
             window.createBounty = createBounty;
             window.claimBounty = claimBounty;
             window.cancelBounty = cancelBounty;
