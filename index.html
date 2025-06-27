@@ -377,6 +377,86 @@
             box-shadow: 0 0 20px rgba(255, 51, 102, 0.2);
         }
 
+        /* Fee calculation display */
+        .fee-info {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .fee-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+        }
+
+        .fee-row:last-child {
+            margin-bottom: 0;
+            font-weight: bold;
+            padding-top: 0.5rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .info-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            font-size: 10px;
+            font-weight: bold;
+            color: #888;
+            cursor: help;
+            margin-left: 6px;
+            position: relative;
+        }
+
+        .info-icon:hover {
+            background: rgba(255, 51, 102, 0.2);
+            border-color: rgba(255, 51, 102, 0.5);
+            color: #fff;
+        }
+
+        .tooltip {
+            position: absolute;
+            bottom: 120%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(20, 20, 20, 0.95);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-size: 12px;
+            color: #fff;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+            z-index: 1000;
+            pointer-events: none;
+        }
+
+        .tooltip::after {
+            content: '';
+            position: absolute;
+            top: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            border: 4px solid transparent;
+            border-top-color: rgba(20, 20, 20, 0.95);
+        }
+
+        .info-icon:hover .tooltip {
+            opacity: 1;
+            visibility: visible;
+        }
+
         .system-info {
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid rgba(255, 255, 255, 0.1);
@@ -655,8 +735,10 @@
                 "event BountyCancelled(uint256 indexed bountyId)"
             ];
             
-            const NETWORKNODE_BOUNTY_ADDRESS = "0x1032089853ae8fc4249213d4834e50cb86D018E0";
+            const NETWORKNODE_BOUNTY_ADDRESS = "0x00933625B8bb40d3Bba11DdD50e417BbB0a30045";
             const EVE_API_BASE = "https://blockchain-gateway-stillness.live.tech.evefrontier.com";
+            const PLATFORM_FEE_ADDRESS = "0xEf57543E620bA2229382351619580ACA32Ae0a62";
+            const PLATFORM_FEE_PERCENTAGE = 0.1; // 10%
 
             // Pyrope Testnet configuration
             const PYROPE_CONFIG = {
@@ -842,6 +924,10 @@
                             <label class="form-label">Bounty Amount (ETH)</label>
                             <input type="number" id="bountyAmount" class="form-input" 
                                    placeholder="0.1" step="0.01" min="0.001">
+                            <div style="font-size: 0.8rem; color: #888; margin-top: 0.25rem;">
+                                A 10% fee is added to cover sending reward to winner and platform development
+                            </div>
+                            <div id="feeInfo" class="fee-info" style="display: none;"></div>
                             <div id="amountError" class="error-message"></div>
                         </div>
 
@@ -856,6 +942,8 @@
                 // Add event listeners after DOM is updated
                 setTimeout(() => {
                     const systemInput = document.getElementById('systemInput');
+                    const bountyAmountInput = document.getElementById('bountyAmount');
+                    
                     if (systemInput) {
                         systemInput.addEventListener('input', (e) => {
                             window.searchSolarSystems(e.target.value);
@@ -871,6 +959,21 @@
                                 const resultsDiv = document.getElementById('searchResults');
                                 if (resultsDiv) resultsDiv.style.display = 'none';
                             }, 200); // Delay to allow clicking on results
+                        });
+                    }
+
+                    if (bountyAmountInput) {
+                        bountyAmountInput.addEventListener('input', (e) => {
+                            calculateAndDisplayFees(e.target.value);
+                        });
+                        
+                        bountyAmountInput.addEventListener('change', (e) => {
+                            calculateAndDisplayFees(e.target.value);
+                        });
+                        
+                        // Also trigger on keyup for immediate feedback
+                        bountyAmountInput.addEventListener('keyup', (e) => {
+                            calculateAndDisplayFees(e.target.value);
                         });
                     }
                 }, 0);
@@ -1020,7 +1123,7 @@
                 }
             }
 
-            // Create bounty transaction
+            // Create bounty transaction (single transaction with fee added on top)
             async function createBounty() {
                 const bountyAmount = document.getElementById('bountyAmount').value;
                 const statusDiv = document.getElementById('createStatus');
@@ -1041,12 +1144,19 @@
                     createBtn.disabled = true;
                     statusDiv.innerHTML = '<div class="spinner"></div> Creating bounty...';
 
+                    // Calculate total amount to send (bounty + 10% fee on top)
+                    const bountyAmountEth = parseFloat(bountyAmount);
+                    const platformFee = bountyAmountEth * PLATFORM_FEE_PERCENTAGE; // 10% of bounty
+                    const totalAmount = bountyAmountEth + platformFee; // User pays bounty + fee
+
+                    // Single transaction - contract handles fee distribution
+                    // User gets exact bounty amount they specified, plus 10% fee
                     const tx = await bountyContract.createBounty(
                         window.currentSystemData.id,
                         window.currentSystemData.name,
                         window.currentSystemData.networkNodeOwners,
                         {
-                            value: window.ethers.utils.parseEther(bountyAmount)
+                            value: window.ethers.utils.parseEther(totalAmount.toString())
                         }
                     );
 
@@ -1055,13 +1165,14 @@
 
                     statusDiv.innerHTML = '<div class="success-message">Bounty created successfully!</div>';
                     updateStats();
-                    showToast('Bounty created successfully!', 'success');
+                    showToast(`Bounty created! Bounty: ${bountyAmountEth.toFixed(4)} ETH + Fee: ${platformFee.toFixed(4)} ETH = Total: ${totalAmount.toFixed(4)} ETH`, 'success');
                     
                     // Clear form
                     setTimeout(() => {
                         document.getElementById('systemInput').value = '';
                         document.getElementById('bountyAmount').value = '';
                         document.getElementById('systemInfo').innerHTML = '';
+                        document.getElementById('feeInfo').style.display = 'none';
                         statusDiv.innerHTML = '';
                         window.currentSystemData = null;
                         createBtn.disabled = false;
@@ -1755,6 +1866,7 @@
             window.createBounty = createBounty;
             window.claimBounty = claimBounty;
             window.cancelBounty = cancelBounty;
+            window.calculateAndDisplayFees = calculateAndDisplayFees;
 
             // Set up button click handler after exposing functions
             document.addEventListener('DOMContentLoaded', () => {
@@ -1762,6 +1874,5 @@
             });
         })();
     </script>
-    <script async src="https://scripts.simpleanalyticscdn.com/latest.js"></script>
 </body>
 </html>

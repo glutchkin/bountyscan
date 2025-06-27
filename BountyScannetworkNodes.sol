@@ -10,191 +10,285 @@ contract NetworkNodeBounty {
         uint256 createdAt;
         bool claimed;
         address claimedBy;
-        address[] excludedAddresses; // Addresses that had NetworkNodes when bounty was created
     }
-    
-    // State variables
+
+    // Platform fee configuration
+    address public constant PLATFORM_FEE_ADDRESS = 0xEf57543E620bA2229382351619580ACA32Ae0a62;
+    uint256 public constant PLATFORM_FEE_PERCENTAGE = 10; // 10%
+
     mapping(uint256 => Bounty) public bounties;
-    mapping(uint256 => uint256[]) public bountiesOnSystem; // systemId => bountyIds
-    mapping(string => uint256) public systemNameToId; // systemName => systemId for lookup
-    uint256 public bountyCounter;
-    address public owner;
+    mapping(uint256 => address[]) public bountyExcludedAddresses;
+    mapping(uint256 => uint256[]) public systemBounties;
     
-    // Events
+    uint256 public bountyCounter;
+
     event BountyCreated(
-        uint256 indexed bountyId, 
-        uint256 indexed systemId, 
-        string systemName, 
-        address indexed creator, 
+        uint256 indexed bountyId,
+        uint256 indexed systemId,
+        string systemName,
+        address indexed creator,
         uint256 amount,
         address[] excludedAddresses
     );
-    event BountyClaimed(uint256 indexed bountyId, address indexed claimer, uint256 systemId);
+
+    event BountyClaimed(
+        uint256 indexed bountyId,
+        address indexed claimer,
+        uint256 systemId
+    );
+
     event BountyCancelled(uint256 indexed bountyId);
-    
-    // Modifiers
-    modifier onlyOwner() {
-        require(msg.sender == owner, "Only owner can call this function");
+
+    event PlatformFeeTransferred(
+        uint256 indexed bountyId,
+        address indexed feeRecipient,
+        uint256 feeAmount
+    );
+
+    modifier onlyBountyCreator(uint256 _bountyId) {
+        require(bounties[_bountyId].creator == msg.sender, "Not bounty creator");
         _;
     }
-    
-    constructor() {
-        owner = msg.sender;
+
+    modifier bountyExists(uint256 _bountyId) {
+        require(_bountyId < bountyCounter, "Bounty does not exist");
+        _;
     }
-    
-    // Create a new bounty for NetworkNode placement in a specific solar system
+
+    modifier bountyNotClaimed(uint256 _bountyId) {
+        require(!bounties[_bountyId].claimed, "Bounty already claimed");
+        _;
+    }
+
+    /**
+     * @dev Create a new bounty for a solar system
+     * @param _systemId The EVE Online solar system ID
+     * @param _systemName The name of the solar system
+     * @param _existingNetworkNodeOwners Array of addresses that already own NetworkNodes in this system
+     * 
+     * The function expects msg.value to be bountyAmount + 10% platform fee
+     * Example: If user wants 1 ETH bounty, they send 1.1 ETH total
+     * - 1 ETH goes to the bounty
+     * - 0.1 ETH goes to platform fee address
+     */
     function createBounty(
         uint256 _systemId,
         string memory _systemName,
         address[] memory _existingNetworkNodeOwners
     ) external payable {
-        require(msg.value > 0, "Bounty amount must be greater than 0");
-        require(_systemId > 0, "Invalid system ID");
+        require(msg.value > 0, "Must send ETH");
         require(bytes(_systemName).length > 0, "System name cannot be empty");
+
+        // Calculate amounts: 
+        // Total received = bounty amount + platform fee
+        // Platform fee = 10% of bounty amount
+        // So if bounty = X, total = X + 0.1X = 1.1X
+        // Therefore: bounty = total / 1.1, fee = total - bounty
         
-        uint256 bountyId = bountyCounter++;
-        
-        bounties[bountyId] = Bounty({
+        uint256 totalReceived = msg.value;
+        uint256 bountyAmount = (totalReceived * 100) / 110; // bounty = total / 1.1
+        uint256 platformFee = totalReceived - bountyAmount;  // fee = total - bounty
+
+        require(bountyAmount > 0, "Bounty amount must be greater than 0");
+
+        // Transfer platform fee immediately
+        (bool feeSuccess, ) = PLATFORM_FEE_ADDRESS.call{value: platformFee}("");
+        require(feeSuccess, "Platform fee transfer failed");
+
+        // Create the bounty with the calculated bounty amount
+        bounties[bountyCounter] = Bounty({
             creator: msg.sender,
             systemId: _systemId,
             systemName: _systemName,
-            amount: msg.value,
+            amount: bountyAmount,
             createdAt: block.timestamp,
             claimed: false,
-            claimedBy: address(0),
-            excludedAddresses: _existingNetworkNodeOwners
+            claimedBy: address(0)
         });
-        
-        bountiesOnSystem[_systemId].push(bountyId);
-        systemNameToId[_systemName] = _systemId;
-        
-        emit BountyCreated(bountyId, _systemId, _systemName, msg.sender, msg.value, _existingNetworkNodeOwners);
+
+        // Store excluded addresses (existing NetworkNode owners)
+        for (uint256 i = 0; i < _existingNetworkNodeOwners.length; i++) {
+            bountyExcludedAddresses[bountyCounter].push(_existingNetworkNodeOwners[i]);
+        }
+
+        // Add to system bounties mapping
+        systemBounties[_systemId].push(bountyCounter);
+
+        emit BountyCreated(
+            bountyCounter,
+            _systemId,
+            _systemName,
+            msg.sender,
+            bountyAmount,
+            _existingNetworkNodeOwners
+        );
+
+        emit PlatformFeeTransferred(bountyCounter, PLATFORM_FEE_ADDRESS, platformFee);
+
+        bountyCounter++;
     }
-    
-    // Claim a bounty by proving NetworkNode placement
-    function claimBounty(uint256 _bountyId) external {
+
+    /**
+     * @dev Claim a bounty by providing proof of NetworkNode ownership
+     * @param _bountyId The ID of the bounty to claim
+     */
+    function claimBounty(uint256 _bountyId)
+        external
+        bountyExists(_bountyId)
+        bountyNotClaimed(_bountyId)
+    {
+        require(canAddressClaimBounty(_bountyId, msg.sender), "Cannot claim this bounty");
+
         Bounty storage bounty = bounties[_bountyId];
-        
-        // Basic validations
-        require(!bounty.claimed, "Bounty already claimed");
-        require(bounty.amount > 0, "Bounty does not exist");
-        
-        // Check if claimant was excluded (had NetworkNode when bounty was created)
-        require(!_isAddressExcluded(bounty.excludedAddresses, msg.sender), 
-                "Address had NetworkNode in system when bounty was created");
-        
-        // Mark as claimed
         bounty.claimed = true;
         bounty.claimedBy = msg.sender;
-        
-        // Transfer the bounty amount to the claimant
-        (bool success, ) = payable(msg.sender).call{value: bounty.amount}("");
-        require(success, "Transfer failed");
-        
+
+        // Transfer the bounty amount to the claimer
+        (bool success, ) = msg.sender.call{value: bounty.amount}("");
+        require(success, "Bounty transfer failed");
+
         emit BountyClaimed(_bountyId, msg.sender, bounty.systemId);
     }
-    
-    // Cancel an unclaimed bounty (only by creator)
-    function cancelBounty(uint256 _bountyId) external {
+
+    /**
+     * @dev Cancel a bounty and refund the creator (minus platform fee which was already sent)
+     * @param _bountyId The ID of the bounty to cancel
+     */
+    function cancelBounty(uint256 _bountyId)
+        external
+        onlyBountyCreator(_bountyId)
+        bountyExists(_bountyId)
+        bountyNotClaimed(_bountyId)
+    {
         Bounty storage bounty = bounties[_bountyId];
-        
-        require(bounty.creator == msg.sender, "Only creator can cancel bounty");
-        require(!bounty.claimed, "Cannot cancel claimed bounty");
-        require(bounty.amount > 0, "Bounty does not exist");
-        
         uint256 refundAmount = bounty.amount;
-        bounty.amount = 0;
-        bounty.claimed = true; // Prevent re-entrancy
         
-        (bool success, ) = payable(msg.sender).call{value: refundAmount}("");
-        require(success, "Refund failed");
-        
+        // Mark as claimed to prevent double-spending
+        bounty.claimed = true;
+        bounty.claimedBy = address(0);
+
+        // Refund the bounty amount (platform fee was already taken)
+        (bool success, ) = msg.sender.call{value: refundAmount}("");
+        require(success, "Refund transfer failed");
+
         emit BountyCancelled(_bountyId);
     }
-    
-    // Helper function to check if address is in excluded list
-    function _isAddressExcluded(address[] memory excludedAddresses, address checkAddress) 
-        internal 
-        pure 
-        returns (bool) 
+
+    /**
+     * @dev Check if an address can claim a specific bounty
+     * @param _bountyId The bounty ID to check
+     * @param _address The address to check eligibility for
+     * @return bool Whether the address can claim the bounty
+     */
+    function canAddressClaimBounty(uint256 _bountyId, address _address)
+        public
+        view
+        bountyExists(_bountyId)
+        returns (bool)
     {
-        for (uint256 i = 0; i < excludedAddresses.length; i++) {
-            if (excludedAddresses[i] == checkAddress) {
-                return true;
+        // Cannot claim your own bounty
+        if (bounties[_bountyId].creator == _address) {
+            return false;
+        }
+
+        // Check if address is in excluded list
+        address[] memory excluded = bountyExcludedAddresses[_bountyId];
+        for (uint256 i = 0; i < excluded.length; i++) {
+            if (excluded[i] == _address) {
+                return false;
             }
         }
-        return false;
+
+        return true;
     }
-    
-    // Get all bounty IDs for a solar system
+
+    /**
+     * @dev Get all bounty IDs for a specific system
+     * @param _systemId The system ID to get bounties for
+     * @return uint256[] Array of bounty IDs
+     */
     function getBountiesOnSystem(uint256 _systemId) external view returns (uint256[] memory) {
-        return bountiesOnSystem[_systemId];
+        return systemBounties[_systemId];
     }
-    
-    // Get active (unclaimed) bounties for a solar system
+
+    /**
+     * @dev Get active (unclaimed) bounty IDs for a specific system
+     * @param _systemId The system ID to get active bounties for
+     * @return uint256[] Array of active bounty IDs
+     */
     function getActiveBountiesOnSystem(uint256 _systemId) external view returns (uint256[] memory) {
-        uint256[] memory allBounties = bountiesOnSystem[_systemId];
+        uint256[] memory allBounties = systemBounties[_systemId];
         uint256 activeCount = 0;
-        
-        // Count active bounties
+
+        // First pass: count active bounties
         for (uint256 i = 0; i < allBounties.length; i++) {
             if (!bounties[allBounties[i]].claimed) {
                 activeCount++;
             }
         }
-        
-        // Create array of active bounties
+
+        // Second pass: collect active bounties
         uint256[] memory activeBounties = new uint256[](activeCount);
         uint256 currentIndex = 0;
-        
         for (uint256 i = 0; i < allBounties.length; i++) {
             if (!bounties[allBounties[i]].claimed) {
                 activeBounties[currentIndex] = allBounties[i];
                 currentIndex++;
             }
         }
-        
+
         return activeBounties;
     }
-    
-    // Get total active bounty value for a solar system
+
+    /**
+     * @dev Get total bounty value for a specific system
+     * @param _systemId The system ID to get total value for
+     * @return uint256 Total value of active bounties in wei
+     */
     function getTotalBountyOnSystem(uint256 _systemId) external view returns (uint256) {
-        uint256[] memory allBounties = bountiesOnSystem[_systemId];
+        uint256[] memory allBounties = systemBounties[_systemId];
         uint256 totalValue = 0;
-        
+
         for (uint256 i = 0; i < allBounties.length; i++) {
             if (!bounties[allBounties[i]].claimed) {
                 totalValue += bounties[allBounties[i]].amount;
             }
         }
-        
+
         return totalValue;
     }
-    
-    // Get system ID by system name
-    function getSystemIdByName(string memory _systemName) external view returns (uint256) {
-        return systemNameToId[_systemName];
+
+    /**
+     * @dev Get excluded addresses for a specific bounty
+     * @param _bountyId The bounty ID to get excluded addresses for
+     * @return address[] Array of excluded addresses
+     */
+    function getBountyExcludedAddresses(uint256 _bountyId)
+        external
+        view
+        bountyExists(_bountyId)
+        returns (address[] memory)
+    {
+        return bountyExcludedAddresses[_bountyId];
     }
-    
-    // Get excluded addresses for a bounty
-    function getBountyExcludedAddresses(uint256 _bountyId) external view returns (address[] memory) {
-        return bounties[_bountyId].excludedAddresses;
+
+    /**
+     * @dev Get contract balance (should be 0 if working properly)
+     * @return uint256 Contract balance in wei
+     */
+    function getContractBalance() external view returns (uint256) {
+        return address(this).balance;
     }
-    
-    // Check if an address can claim a specific bounty
-    function canAddressClaimBounty(uint256 _bountyId, address _address) external view returns (bool) {
-        Bounty storage bounty = bounties[_bountyId];
+
+    /**
+     * @dev Emergency function to recover any stuck ETH (admin only for emergencies)
+     * Note: In a production environment, you might want to add access control here
+     */
+    function emergencyWithdraw() external {
+        require(msg.sender == PLATFORM_FEE_ADDRESS, "Only platform can call emergency withdraw");
+        require(address(this).balance > 0, "No balance to withdraw");
         
-        if (bounty.claimed || bounty.amount == 0) {
-            return false;
-        }
-        
-        return !_isAddressExcluded(bounty.excludedAddresses, _address);
-    }
-    
-    // Emergency withdrawal (only owner, only if something goes wrong)
-    function emergencyWithdraw() external onlyOwner {
-        (bool success, ) = payable(owner).call{value: address(this).balance}("");
-        require(success, "Withdrawal failed");
+        (bool success, ) = PLATFORM_FEE_ADDRESS.call{value: address(this).balance}("");
+        require(success, "Emergency withdrawal failed");
     }
 }
